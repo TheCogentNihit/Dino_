@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin — Dino Game Competition</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="bg-grid"></div>
+  <div class="bg-glow bg-glow--purple"></div>
+
+  <!-- Navigation -->
+  <nav class="nav">
+    <a href="/" class="nav__logo">
+      <span class="nav__logo-icon">🦖</span>
+      <span>DinoComp</span>
+    </a>
+    <div class="nav__links">
+      <a href="/" class="nav__link">Home</a>
+      <a href="/game" class="nav__link">Play</a>
+      <a href="/leaderboard" class="nav__link">Leaderboard</a>
+      <a href="/admin" class="nav__link nav__link--active">Admin</a>
+    </div>
+  </nav>
+
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Login -->
+  <div class="page" id="loginPage">
+    <div class="card card--lg fade-in">
+      <h1 class="heading heading--lg" style="text-align:center; margin-bottom: 8px;">
+        🔒 <span class="heading--gradient">Admin Panel</span>
+      </h1>
+      <p class="subtitle" style="text-align:center; margin-bottom: 32px;">
+        Enter the admin password to access competition controls.
+      </p>
+      <form id="loginForm">
+        <div class="input-group" style="margin-bottom: 20px;">
+          <label class="label" for="adminPassword">Password</label>
+          <input type="password" id="adminPassword" class="input" placeholder="Enter admin password..." required>
+        </div>
+        <button type="submit" class="btn btn--primary btn--large btn--full">Unlock</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Dashboard -->
+  <div class="container" id="dashboardPage" style="display:none; padding-top: 100px; padding-bottom: 60px;">
+    <h1 class="heading heading--lg" style="margin-bottom: 8px;">
+      📊 <span class="heading--gradient">Competition Dashboard</span>
+    </h1>
+    <p class="subtitle" style="margin-bottom: 24px;">
+      <span class="status-dot status-dot--live"></span>
+      Live stats — auto-refreshes every 10 seconds
+    </p>
+
+    <!-- Stats Grid -->
+    <div class="admin-grid" id="statsGrid">
+      <div class="stat-card">
+        <div class="stat-card__label">Total Players</div>
+        <div class="stat-card__value" id="statPlayers">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__label">Total Attempts</div>
+        <div class="stat-card__value" id="statAttempts">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__label">Highest Score</div>
+        <div class="stat-card__value" id="statHighest">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__label">Average Score</div>
+        <div class="stat-card__value" id="statAvg">—</div>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div style="margin-top: 32px; display: flex; gap: 12px; flex-wrap: wrap;">
+      <button class="btn btn--primary" id="exportExcelBtn" style="background: linear-gradient(135deg, #10b981, #059669);">📊 Download Excel (.xlsx)</button>
+      <button class="btn btn--secondary" id="exportCsvBtn">📄 Download CSV</button>
+      <button class="btn btn--secondary" id="refreshBtn">🔄 Refresh Now</button>
+    </div>
+
+    <!-- Excel Session Archives -->
+    <div style="margin-top: 40px;">
+      <h2 class="heading heading--md" style="margin-bottom: 8px;">📁 Excel Session Backups</h2>
+      <p class="subtitle" style="margin-bottom: 16px; font-size: 0.85rem;">
+        A new snapshot is automatically saved each time the server starts. Older sessions remain preserved.
+      </p>
+      <div id="adminExportsList" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px;">
+        <div style="color: var(--text-muted); font-size: 0.9rem;">Loading backups...</div>
+      </div>
+    </div>
+
+    <!-- Embedded Leaderboard -->
+    <div style="margin-top: 40px;">
+      <h2 class="heading heading--md" style="margin-bottom: 16px;">🏆 Full Leaderboard</h2>
+      <div class="leaderboard__list" id="adminLeaderboard">
+        <div style="text-align:center; padding: 30px; color: var(--text-muted);">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let adminPassword = '';
+
+    function showToast(msg, type = 'info') {
+      const c = document.getElementById('toastContainer');
+      const t = document.createElement('div');
+      t.className = `toast toast--${type}`;
+      t.textContent = msg;
+      c.appendChild(t);
+      setTimeout(() => t.remove(), 4000);
+    }
+
+    // Login
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      adminPassword = document.getElementById('adminPassword').value;
+
+      try {
+        const res = await fetch(`/api/admin/stats?password=${encodeURIComponent(adminPassword)}`);
+        if (res.ok) {
+          document.getElementById('loginPage').style.display = 'none';
+          document.getElementById('dashboardPage').style.display = 'block';
+          loadDashboard();
+        } else {
+          showToast('Invalid password', 'error');
+        }
+      } catch {
+        showToast('Connection error', 'error');
+      }
+    });
+
+    async function loadDashboard() {
+      try {
+        // Stats
+        const statsRes = await fetch(`/api/admin/stats?password=${encodeURIComponent(adminPassword)}`);
+        const stats = await statsRes.json();
+
+        document.getElementById('statPlayers').textContent = stats.total_players || 0;
+        document.getElementById('statAttempts').textContent = stats.total_attempts || 0;
+        document.getElementById('statHighest').textContent = stats.highest_score || 0;
+        document.getElementById('statAvg').textContent = Math.round(stats.avg_score || 0);
+
+        // Leaderboard
+        const lbRes = await fetch('/api/leaderboard');
+        const lbData = await lbRes.json();
+
+        const list = document.getElementById('adminLeaderboard');
+        if (!lbData.leaderboard || lbData.leaderboard.length === 0) {
+          list.innerHTML = '<div style="text-align:center; padding: 30px; color: var(--text-muted);">No scores yet</div>';
+        } else {
+          let html = '';
+          lbData.leaderboard.forEach((entry, i) => {
+            const rank = i + 1;
+            let rowClass = 'lb-row';
+            let rankClass = 'lb-rank';
+            if (rank === 1) { rowClass += ' lb-row--gold'; rankClass += ' lb-rank--1'; }
+            else if (rank === 2) { rowClass += ' lb-row--silver'; rankClass += ' lb-rank--2'; }
+            else if (rank === 3) { rowClass += ' lb-row--bronze'; rankClass += ' lb-rank--3'; }
+
+            const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '';
+
+            html += `
+              <div class="${rowClass}">
+                <div class="${rankClass}">${medal || rank}</div>
+                <div class="lb-name">${escapeHtml(entry.name)}</div>
+                <div class="lb-attempts">${entry.attempts} attempt${entry.attempts !== 1 ? 's' : ''}</div>
+                <div class="lb-score">${entry.best_score.toLocaleString()}</div>
+              </div>
+            `;
+          });
+          list.innerHTML = html;
+        }
+
+        // Export Archives
+        loadExportsList();
+
+      } catch (err) {
+        console.error('Dashboard error:', err);
+      }
+    }
+
+    async function loadExportsList() {
+      try {
+        const res = await fetch(`/api/admin/exports?password=${encodeURIComponent(adminPassword)}`);
+        const data = await res.json();
+        const container = document.getElementById('adminExportsList');
+
+        if (!data.exports || data.exports.length === 0) {
+          container.innerHTML = '<div style="color: var(--text-muted); font-size: 0.9rem;">No archive files yet.</div>';
+          return;
+        }
+
+        let html = '<div style="display:flex; flex-direction:column; gap:8px;">';
+        data.exports.forEach(file => {
+          const sizeKb = (file.size / 1024).toFixed(1);
+          html += `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 12px; background:var(--bg-secondary); border-radius:var(--radius-sm); font-size:0.9rem;">
+              <span style="font-family:var(--font-mono); color:var(--text-primary);">📊 ${escapeHtml(file.name)} <span style="color:var(--text-muted); font-size:0.8rem;">(${sizeKb} KB)</span></span>
+              <a href="/api/admin/exports/${encodeURIComponent(file.name)}?password=${encodeURIComponent(adminPassword)}" class="btn btn--secondary" style="padding:6px 14px; font-size:0.8rem;" download>Download</a>
+            </div>
+          `;
+        });
+        html += '</div>';
+        container.innerHTML = html;
+      } catch (err) {
+        console.error('Failed to load export files:', err);
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Export Excel
+    document.getElementById('exportExcelBtn')?.addEventListener('click', () => {
+      window.open(`/api/admin/export-excel?password=${encodeURIComponent(adminPassword)}`, '_blank');
+      showToast('Generating live Excel report...', 'info');
+      setTimeout(loadExportsList, 2000);
+    });
+
+    // Export CSV
+    document.getElementById('exportCsvBtn')?.addEventListener('click', () => {
+      window.open(`/api/admin/export-csv?password=${encodeURIComponent(adminPassword)}`, '_blank');
+      showToast('CSV download started', 'success');
+    });
+
+    // Manual refresh
+    document.getElementById('refreshBtn')?.addEventListener('click', () => {
+      loadDashboard();
+      showToast('Dashboard refreshed', 'info');
+    });
+
+    // Auto-refresh every 10 seconds
+    setInterval(() => {
+      if (document.getElementById('dashboardPage').style.display !== 'none') {
+        loadDashboard();
+      }
+    }, 10000);
+  </script>
+</body>
+</html>

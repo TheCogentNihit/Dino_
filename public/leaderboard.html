@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Leaderboard — Dino Game Competition</title>
+  <meta name="description" content="Live leaderboard for the Dino Game Competition. See who has the highest score!">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="bg-grid"></div>
+  <div class="bg-glow bg-glow--purple"></div>
+  <div class="bg-glow bg-glow--blue"></div>
+
+  <!-- Navigation -->
+  <nav class="nav">
+    <a href="/" class="nav__logo">
+      <span class="nav__logo-icon">🦖</span>
+      <span>DinoComp</span>
+    </a>
+    <div class="nav__links">
+      <a href="/" class="nav__link">Home</a>
+      <a href="/game" class="nav__link">Play</a>
+      <a href="/leaderboard" class="nav__link nav__link--active">Leaderboard</a>
+    </div>
+  </nav>
+
+  <div class="container leaderboard">
+    <div class="leaderboard__header">
+      <h1 class="heading heading--lg">
+        🏆 <span class="heading--gradient">Leaderboard</span>
+      </h1>
+      <p class="subtitle">
+        <span class="status-dot status-dot--live"></span>
+        Live — updates every 5 seconds
+      </p>
+    </div>
+
+    <div class="leaderboard__list" id="leaderboardList">
+      <div style="text-align:center; padding: 40px; color: var(--text-muted);">
+        <div class="spinner" style="margin: 0 auto 16px;"></div>
+        Loading leaderboard...
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const savedPlayer = JSON.parse(localStorage.getItem('dinoPlayer') || '{}');
+    const myPlayerId = savedPlayer.playerId || null;
+
+    async function loadLeaderboard() {
+      try {
+        const res = await fetch('/api/leaderboard');
+        const data = await res.json();
+
+        const list = document.getElementById('leaderboardList');
+
+        if (!data.leaderboard || data.leaderboard.length === 0) {
+          list.innerHTML = `
+            <div style="text-align:center; padding: 60px 20px; color: var(--text-muted);">
+              <div style="font-size: 3rem; margin-bottom: 16px;">🦖</div>
+              <p style="font-size: 1.1rem;">No scores yet!</p>
+              <p style="margin-top: 8px;">Be the first to play.</p>
+              <a href="/game" class="btn btn--primary" style="margin-top: 20px; text-decoration:none;">Play Now</a>
+            </div>
+          `;
+          return;
+        }
+
+        let html = '';
+        data.leaderboard.forEach((entry, i) => {
+          const rank = i + 1;
+          let rowClass = 'lb-row';
+          let rankClass = 'lb-rank';
+
+          if (rank === 1) { rowClass += ' lb-row--gold'; rankClass += ' lb-rank--1'; }
+          else if (rank === 2) { rowClass += ' lb-row--silver'; rankClass += ' lb-rank--2'; }
+          else if (rank === 3) { rowClass += ' lb-row--bronze'; rankClass += ' lb-rank--3'; }
+
+          if (entry.player_id === myPlayerId) {
+            rowClass += ' lb-row--self';
+          }
+
+          const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '';
+
+          html += `
+            <div class="${rowClass} fade-in" style="animation-delay: ${i * 0.03}s">
+              <div class="${rankClass}">${medal || rank}</div>
+              <div class="lb-name">${escapeHtml(entry.name)}${entry.player_id === myPlayerId ? ' <span style="color:var(--accent-light); font-size:0.75rem;">(You)</span>' : ''}</div>
+              <div class="lb-attempts">${entry.attempts} attempt${entry.attempts !== 1 ? 's' : ''}</div>
+              <div class="lb-score">${entry.best_score.toLocaleString()}</div>
+            </div>
+          `;
+        });
+
+        list.innerHTML = html;
+      } catch (err) {
+        console.error('Leaderboard fetch error:', err);
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Initial load
+    loadLeaderboard();
+
+    // Poll every 5 seconds
+    setInterval(loadLeaderboard, 5000);
+  </script>
+</body>
+</html>

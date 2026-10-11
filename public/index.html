@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dino Game Competition</title>
+  <meta name="description" content="Join the Dino Game Competition! Play the classic T-Rex runner and compete for the top spot on the leaderboard.">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="bg-grid"></div>
+  <div class="bg-glow bg-glow--purple"></div>
+  <div class="bg-glow bg-glow--blue"></div>
+
+  <!-- Navigation -->
+  <nav class="nav">
+    <a href="/" class="nav__logo">
+      <span class="nav__logo-icon">🦖</span>
+      <span>DinoComp</span>
+    </a>
+    <div class="nav__links">
+      <a href="/" class="nav__link nav__link--active">Play</a>
+      <a href="/leaderboard" class="nav__link">Leaderboard</a>
+    </div>
+  </nav>
+
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Main Content -->
+  <div class="page">
+    <div class="card card--lg fade-in" id="registrationCard">
+      <div class="dino-ascii">
+        ██████╗ ██╗███╗   ██╗ ██████╗ 
+        ██╔══██╗██║████╗  ██║██╔═══██╗
+        ██║  ██║██║██╔██╗ ██║██║   ██║
+        ██║  ██║██║██║╚██╗██║██║   ██║
+        ██████╔╝██║██║ ╚████║╚██████╔╝
+        ╚═════╝ ╚═╝╚═╝  ╚═══╝ ╚═════╝ 
+      </div>
+
+      <h1 class="heading heading--lg" style="text-align:center; margin-bottom: 8px;">
+        Join the <span class="heading--gradient">Competition</span>
+      </h1>
+      <p class="subtitle" style="text-align:center; margin-bottom: 32px;">
+        Enter your name to start playing the Dino runner game.
+      </p>
+
+      <form id="registerForm">
+        <div class="input-group" style="margin-bottom: 20px;">
+          <label class="label" for="playerName">Your Name</label>
+          <input 
+            type="text" 
+            id="playerName" 
+            class="input" 
+            placeholder="Enter your name..." 
+            maxlength="30" 
+            autocomplete="off" 
+            required
+          >
+        </div>
+        <button type="submit" class="btn btn--primary btn--large btn--full" id="joinBtn">
+          🎮 Start Playing
+        </button>
+      </form>
+
+      <p class="subtitle" style="text-align:center; margin-top: 20px; font-size: 0.85rem;">
+        Your name will appear on the public leaderboard.
+      </p>
+    </div>
+
+    <!-- Already registered state -->
+    <div class="card card--lg fade-in" id="welcomeBackCard" style="display:none;">
+      <h2 class="heading heading--lg" style="text-align:center; margin-bottom: 8px;">
+        Welcome back! 👋
+      </h2>
+      <p class="subtitle" style="text-align:center; margin-bottom: 8px;">
+        Playing as <strong id="welcomeName" style="color: var(--accent-light);"></strong>
+      </p>
+      <p class="subtitle" style="text-align:center; margin-bottom: 32px; font-size: 0.85rem;" id="welcomeId"></p>
+
+      <div style="display:flex; flex-direction:column; gap: 12px;">
+        <a href="/game" class="btn btn--primary btn--large btn--full" style="text-decoration:none;">
+          🦖 Play Game
+        </a>
+        <a href="/leaderboard" class="btn btn--secondary btn--full" style="text-decoration:none;">
+          🏆 View Leaderboard
+        </a>
+        <button class="btn btn--secondary btn--full" id="changeNameBtn" style="font-size: 0.85rem; padding: 10px;">
+          Change Name
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Toast system
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = `toast toast--${type}`;
+      toast.textContent = message;
+      container.appendChild(toast);
+      setTimeout(() => toast.remove(), 4000);
+    }
+
+    // Check if already registered
+    const savedPlayer = localStorage.getItem('dinoPlayer');
+
+    if (savedPlayer) {
+      const player = JSON.parse(savedPlayer);
+      document.getElementById('registrationCard').style.display = 'none';
+      document.getElementById('welcomeBackCard').style.display = 'block';
+      document.getElementById('welcomeName').textContent = player.name;
+      document.getElementById('welcomeId').textContent = `ID: ${player.playerId}`;
+    }
+
+    // Registration form
+    document.getElementById('registerForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const nameInput = document.getElementById('playerName');
+      const btn = document.getElementById('joinBtn');
+      const name = nameInput.value.trim();
+
+      if (!name) return;
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Joining...';
+
+      try {
+        const res = await fetch('/api/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name }),
+        });
+
+        const data = await res.json();
+
+        if (res.ok) {
+          localStorage.setItem('dinoPlayer', JSON.stringify(data));
+          showToast(data.returning ? 'Welcome back!' : 'Registered successfully!', 'success');
+          
+          // Redirect to game
+          setTimeout(() => {
+            window.location.href = '/game';
+          }, 500);
+        } else {
+          showToast(data.error || 'Registration failed.', 'error');
+          btn.disabled = false;
+          btn.innerHTML = '🎮 Start Playing';
+        }
+      } catch (err) {
+        showToast('Connection error. Please try again.', 'error');
+        btn.disabled = false;
+        btn.innerHTML = '🎮 Start Playing';
+      }
+    });
+
+    // Change name
+    document.getElementById('changeNameBtn')?.addEventListener('click', () => {
+      localStorage.removeItem('dinoPlayer');
+      document.getElementById('registrationCard').style.display = 'block';
+      document.getElementById('welcomeBackCard').style.display = 'none';
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dino Game — Play</title>
+  <meta name="description" content="Play the Dino runner game and compete for the highest score!">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="bg-grid"></div>
+  <div class="bg-glow bg-glow--purple"></div>
+
+  <!-- Navigation -->
+  <nav class="nav">
+    <a href="/" class="nav__logo">
+      <span class="nav__logo-icon">🦖</span>
+      <span>DinoComp</span>
+    </a>
+    <div class="nav__links">
+      <a href="/" class="nav__link">Home</a>
+      <a href="/game" class="nav__link nav__link--active">Play</a>
+      <a href="/leaderboard" class="nav__link">Leaderboard</a>
+    </div>
+  </nav>
+
+  <div class="toast-container" id="toastContainer"></div>
+
+  <div class="game-wrapper">
+    <!-- HUD -->
+    <div class="game-hud">
+      <div>
+        <span class="label">SCORE</span>
+        <div class="game-hud__score" id="scoreDisplay">00000</div>
+      </div>
+      <div class="game-hud__info">
+        <div>
+          <span class="label">HIGH SCORE</span>
+          <div class="game-hud__score" id="hiScoreDisplay" style="color: var(--text-muted);">00000</div>
+        </div>
+        <div class="game-hud__badge" id="playerBadge">Player</div>
+      </div>
+    </div>
+
+    <!-- Canvas -->
+    <div class="game-canvas-container">
+      <canvas id="gameCanvas" width="800" height="250"></canvas>
+
+      <!-- Start overlay -->
+      <div class="game-overlay" id="startOverlay">
+        <div style="font-size: 3rem;">🦖</div>
+        <div class="game-overlay__title">Ready to Run?</div>
+        <div class="game-overlay__subtitle">Press SPACE or tap to start</div>
+      </div>
+
+      <!-- Game Over overlay -->
+      <div class="game-overlay game-overlay--hidden" id="gameOverOverlay">
+        <div class="game-overlay__title">GAME OVER</div>
+        <div class="game-overlay__score" id="finalScore">0</div>
+        <div class="game-overlay__subtitle" id="submitStatus">Submitting score...</div>
+        <button class="btn btn--primary" id="retryBtn" style="margin-top:8px;">
+          🔄 Play Again
+        </button>
+      </div>
+    </div>
+
+    <!-- Instructions -->
+    <div class="game-instructions">
+      <kbd>SPACE</kbd> or <kbd>↑</kbd> to jump &nbsp;·&nbsp; <kbd>↓</kbd> to duck &nbsp;·&nbsp; Tap on mobile
+    </div>
+  </div>
+
+  <script>
+    // ═══════════════════════════════════════════
+    //  AUTH CHECK
+    // ═══════════════════════════════════════════
+    const savedPlayer = localStorage.getItem('dinoPlayer');
+    if (!savedPlayer) {
+      window.location.href = '/';
+    }
+    const player = JSON.parse(savedPlayer || '{}');
+    document.getElementById('playerBadge').textContent = player.name || 'Player';
+
+    // Toast system
+    function showToast(msg, type = 'info') {
+      const c = document.getElementById('toastContainer');
+      const t = document.createElement('div');
+      t.className = `toast toast--${type}`;
+      t.textContent = msg;
+      c.appendChild(t);
+      setTimeout(() => t.remove(), 4000);
+    }
+
+    // ═══════════════════════════════════════════
+    //  DINO GAME ENGINE
+    // ═══════════════════════════════════════════
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Responsive canvas
+    function resizeCanvas() {
+      const container = canvas.parentElement;
+      const w = Math.min(container.clientWidth, 800);
+      canvas.style.width = w + 'px';
+      canvas.style.height = (w * 250 / 800) + 'px';
+    }
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    // ─── Game State ───
+    const GROUND_Y = 200;
+    const CANVAS_W = 800;
+    const CANVAS_H = 250;
+
+    let gameState = 'idle'; // idle, playing, gameover
+    let score = 0;
+    let hiScore = parseInt(localStorage.getItem('dinoHiScore') || '0');
+    let speed = 6;
+    let frame = 0;
+    let gameStartTime = 0;
+
+    document.getElementById('hiScoreDisplay').textContent = String(hiScore).padStart(5, '0');
+
+    // ─── T-Rex (Dino) ───
+    const dino = {
+      x: 60,
+      y: GROUND_Y,
+      w: 44,
+      h: 48,
+      vy: 0,
+      gravity: 0.6,
+      jumpForce: -12,
+      isJumping: false,
+      isDucking: false,
+      duckH: 30,
+      legFrame: 0,
+    };
+
+    // ─── Obstacles ───
+    let obstacles = [];
+    let nextObstacleIn = 60;
+
+    const CACTUS_TYPES = [
+      { w: 18, h: 36 },  // small single
+      { w: 18, h: 50 },  // tall single
+      { w: 36, h: 36 },  // double
+      { w: 52, h: 36 },  // triple
+    ];
+
+    function spawnObstacle() {
+      // Decide cactus or bird
+      const isBird = score > 200 && Math.random() < 0.25;
+
+      if (isBird) {
+        const birdY = [GROUND_Y - 20, GROUND_Y - 50, GROUND_Y - 80][Math.floor(Math.random() * 3)];
+        obstacles.push({
+          x: CANVAS_W + 20,
+          y: birdY,
+          w: 40,
+          h: 30,
+          type: 'bird',
+          wingFrame: 0,
+        });
+      } else {
+        const type = CACTUS_TYPES[Math.floor(Math.random() * CACTUS_TYPES.length)];
+        obstacles.push({
+          x: CANVAS_W + 20,
+          y: GROUND_Y - type.h + dino.h,
+          w: type.w,
+          h: type.h,
+          type: 'cactus',
+        });
+      }
+
+      // Dynamic spacing based on speed
+      const minGap = Math.max(40, 90 - speed * 3);
+      const maxGap = Math.max(80, 150 - speed * 3);
+      nextObstacleIn = minGap + Math.floor(Math.random() * (maxGap - minGap));
+    }
+
+    // ─── Clouds ───
+    let clouds = [];
+    for (let i = 0; i < 5; i++) {
+      clouds.push({
+        x: Math.random() * CANVAS_W,
+        y: 30 + Math.random() * 60,
+        w: 40 + Math.random() * 40,
+      });
+    }
+
+    // ─── Ground ───
+    let groundX = 0;
+
+    // ─── Drawing Functions ───
+
+    function drawDino() {
+      ctx.fillStyle = '#535353';
+      const h = dino.isDucking ? dino.duckH : dino.h;
+      const y = dino.isDucking ? dino.y + (dino.h - dino.duckH) : dino.y;
+      const w = dino.isDucking ? 56 : dino.w;
+
+      // Body
+      ctx.fillRect(dino.x, y, w, h);
+
+      // Eye
+      ctx.fillStyle = '#f7f7f7';
+      if (dino.isDucking) {
+        ctx.fillRect(dino.x + w - 10, y + 4, 6, 6);
+      } else {
+        ctx.fillRect(dino.x + 28, y + 6, 6, 6);
+      }
+
+      // Mouth line
+      ctx.fillStyle = '#535353';
+
+      // Legs (animated)
+      if (gameState === 'playing') {
+        dino.legFrame = (dino.legFrame + 1) % 12;
+      }
+      if (!dino.isJumping) {
+        ctx.fillStyle = '#535353';
+        if (dino.isDucking) {
+          // Ducking legs
+          if (dino.legFrame < 6) {
+            ctx.fillRect(dino.x + 10, y + h, 8, 8);
+            ctx.fillRect(dino.x + 26, y + h, 8, 4);
+          } else {
+            ctx.fillRect(dino.x + 10, y + h, 8, 4);
+            ctx.fillRect(dino.x + 26, y + h, 8, 8);
+          }
+        } else {
+          if (dino.legFrame < 6) {
+            ctx.fillRect(dino.x + 8, y + h, 8, 10);
+            ctx.fillRect(dino.x + 24, y + h, 8, 4);
+          } else {
+            ctx.fillRect(dino.x + 8, y + h, 8, 4);
+            ctx.fillRect(dino.x + 24, y + h, 8, 10);
+          }
+        }
+      } else {
+        // Both legs down when jumping
+        ctx.fillRect(dino.x + 8, y + h, 8, 8);
+        ctx.fillRect(dino.x + 24, y + h, 8, 8);
+      }
+
+      // Arms
+      if (!dino.isDucking) {
+        ctx.fillRect(dino.x + 2, y + 20, 6, 4);
+        ctx.fillRect(dino.x - 2, y + 22, 4, 6);
+      }
+    }
+
+    function drawCactus(obs) {
+      ctx.fillStyle = '#535353';
+      if (obs.w <= 20) {
+        // Single cactus
+        ctx.fillRect(obs.x + 4, obs.y, 10, obs.h);
+        ctx.fillRect(obs.x, obs.y + 10, 6, 4);
+        ctx.fillRect(obs.x + 12, obs.y + 16, 6, 4);
+        // Branches
+        ctx.fillRect(obs.x, obs.y + 10, 4, 14);
+        ctx.fillRect(obs.x + 14, obs.y + 16, 4, 10);
+      } else {
+        // Multi cactus
+        const count = obs.w > 40 ? 3 : 2;
+        for (let i = 0; i < count; i++) {
+          const cx = obs.x + i * 16;
+          ctx.fillRect(cx + 3, obs.y, 10, obs.h);
+          if (i % 2 === 0) {
+            ctx.fillRect(cx, obs.y + 8, 4, 12);
+            ctx.fillRect(cx + 12, obs.y + 14, 4, 10);
+          } else {
+            ctx.fillRect(cx, obs.y + 14, 4, 10);
+            ctx.fillRect(cx + 12, obs.y + 8, 4, 12);
+          }
+        }
+      }
+    }
+
+    function drawBird(obs) {
+      obs.wingFrame = (obs.wingFrame + 1) % 20;
+      ctx.fillStyle = '#535353';
+
+      // Body
+      ctx.fillRect(obs.x, obs.y + 10, 34, 10);
+
+      // Head
+      ctx.fillRect(obs.x + 30, obs.y + 6, 10, 10);
+
+      // Eye
+      ctx.fillStyle = '#f7f7f7';
+      ctx.fillRect(obs.x + 34, obs.y + 8, 4, 4);
+
+      // Beak
+      ctx.fillStyle = '#535353';
+      ctx.fillRect(obs.x + 38, obs.y + 12, 6, 3);
+
+      // Wings (flapping)
+      if (obs.wingFrame < 10) {
+        ctx.fillRect(obs.x + 6, obs.y, 16, 10);
+      } else {
+        ctx.fillRect(obs.x + 6, obs.y + 20, 16, 10);
+      }
+    }
+
+    function drawGround() {
+      ctx.fillStyle = '#535353';
+      ctx.fillRect(0, GROUND_Y + dino.h + 10, CANVAS_W, 1);
+
+      // Ground texture (dots/dashes)
+      ctx.fillStyle = '#b0b0b0';
+      for (let i = 0; i < 40; i++) {
+        const gx = ((i * 28 + groundX * 0.5) % (CANVAS_W + 40)) - 20;
+        const dotH = i % 3 === 0 ? 2 : 1;
+        const dotW = i % 5 === 0 ? 8 : 3;
+        ctx.fillRect(gx, GROUND_Y + dino.h + 14 + (i % 2) * 4, dotW, dotH);
+      }
+    }
+
+    function drawClouds() {
+      ctx.fillStyle = '#e8e8e8';
+      clouds.forEach(cloud => {
+        ctx.fillRect(cloud.x, cloud.y, cloud.w, 10);
+        ctx.fillRect(cloud.x + 6, cloud.y - 6, cloud.w - 12, 6);
+        ctx.fillRect(cloud.x + 14, cloud.y - 10, cloud.w - 28, 4);
+      });
+    }
+
+    // ─── Collision Detection ───
+    function checkCollision(obs) {
+      const dH = dino.isDucking ? dino.duckH : dino.h;
+      const dY = dino.isDucking ? dino.y + (dino.h - dino.duckH) : dino.y;
+
+      // Add small padding for fairness
+      const pad = 6;
+
+      return (
+        dino.x + dino.w - pad > obs.x + pad &&
+        dino.x + pad < obs.x + obs.w - pad &&
+        dY + dH - pad > obs.y + pad &&
+        dY + pad < obs.y + obs.h - pad
+      );
+    }
+
+    // ─── Game Loop ───
+    function update() {
+      if (gameState !== 'playing') return;
+
+      frame++;
+
+      // Score
+      if (frame % 4 === 0) {
+        score++;
+        document.getElementById('scoreDisplay').textContent = String(score).padStart(5, '0');
+      }
+
+      // Increase speed over time
+      speed = 6 + Math.floor(score / 100) * 0.5;
+      if (speed > 16) speed = 16;
+
+      // Dino physics
+      if (dino.isJumping) {
+        dino.y += dino.vy;
+        dino.vy += dino.gravity;
+
+        if (dino.y >= GROUND_Y) {
+          dino.y = GROUND_Y;
+          dino.vy = 0;
+          dino.isJumping = false;
+        }
+      }
+
+      // Obstacles
+      nextObstacleIn--;
+      if (nextObstacleIn <= 0) {
+        spawnObstacle();
+      }
+
+      for (let i = obstacles.length - 1; i >= 0; i--) {
+        obstacles[i].x -= speed;
+
+        if (obstacles[i].x + obstacles[i].w < -20) {
+          obstacles.splice(i, 1);
+          continue;
+        }
+
+        if (checkCollision(obstacles[i])) {
+          gameOver();
+          return;
+        }
+      }
+
+      // Ground scroll
+      groundX -= speed;
+
+      // Clouds
+      clouds.forEach(cloud => {
+        cloud.x -= speed * 0.2;
+        if (cloud.x + cloud.w < 0) {
+          cloud.x = CANVAS_W + Math.random() * 100;
+          cloud.y = 30 + Math.random() * 60;
+        }
+      });
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+
+      // Background
+      ctx.fillStyle = '#f7f7f7';
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+      drawClouds();
+      drawGround();
+
+      // Obstacles
+      obstacles.forEach(obs => {
+        if (obs.type === 'bird') {
+          drawBird(obs);
+        } else {
+          drawCactus(obs);
+        }
+      });
+
+      drawDino();
+    }
+
+    function gameLoop() {
+      update();
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // ─── Game State Management ───
+    function startGame() {
+      gameState = 'playing';
+      score = 0;
+      speed = 6;
+      frame = 0;
+      obstacles = [];
+      nextObstacleIn = 80;
+      gameStartTime = Date.now();
+
+      dino.y = GROUND_Y;
+      dino.vy = 0;
+      dino.isJumping = false;
+      dino.isDucking = false;
+
+      document.getElementById('scoreDisplay').textContent = '00000';
+      document.getElementById('startOverlay').classList.add('game-overlay--hidden');
+      document.getElementById('gameOverOverlay').classList.add('game-overlay--hidden');
+    }
+
+    async function gameOver() {
+      gameState = 'gameover';
+
+      // Update high score
+      if (score > hiScore) {
+        hiScore = score;
+        localStorage.setItem('dinoHiScore', String(hiScore));
+        document.getElementById('hiScoreDisplay').textContent = String(hiScore).padStart(5, '0');
+      }
+
+      // Show overlay
+      document.getElementById('finalScore').textContent = score;
+      document.getElementById('submitStatus').textContent = 'Submitting score...';
+      document.getElementById('gameOverOverlay').classList.remove('game-overlay--hidden');
+
+      // Submit score
+      const durationMs = Date.now() - gameStartTime;
+      await submitScore(score, durationMs);
+    }
+
+    async function submitScore(finalScore, durationMs) {
+      const scoreId = player.playerId + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+      const statusEl = document.getElementById('submitStatus');
+
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const res = await fetch('/api/scores', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              playerId: player.playerId,
+              score: finalScore,
+              scoreId: scoreId,
+              durationMs: durationMs,
+            }),
+          });
+
+          const data = await res.json();
+
+          if (res.ok) {
+            if (data.duplicate) {
+              statusEl.textContent = 'Score already recorded ✓';
+            } else {
+              statusEl.textContent = `Score saved! Best: ${data.bestScore} (Attempt #${data.attemptNumber})`;
+            }
+            showToast('Score submitted!', 'success');
+            return;
+          } else {
+            statusEl.textContent = data.error || 'Submission failed';
+            showToast(data.error || 'Score submission failed', 'error');
+            return;
+          }
+        } catch (err) {
+          if (attempt < 2) {
+            statusEl.textContent = `Retrying... (${attempt + 2}/3)`;
+            await new Promise(r => setTimeout(r, 1000));
+          } else {
+            statusEl.textContent = 'Offline — score saved locally';
+            showToast('Could not reach server. Score saved locally.', 'error');
+
+            // Save to local queue for later
+            const queue = JSON.parse(localStorage.getItem('dinoScoreQueue') || '[]');
+            queue.push({ playerId: player.playerId, score: finalScore, scoreId, durationMs });
+            localStorage.setItem('dinoScoreQueue', JSON.stringify(queue));
+          }
+        }
+      }
+    }
+
+    // Flush any queued scores
+    async function flushScoreQueue() {
+      const queue = JSON.parse(localStorage.getItem('dinoScoreQueue') || '[]');
+      if (queue.length === 0) return;
+
+      const remaining = [];
+      for (const item of queue) {
+        try {
+          const res = await fetch('/api/scores', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(item),
+          });
+          if (!res.ok) remaining.push(item);
+        } catch {
+          remaining.push(item);
+        }
+      }
+      localStorage.setItem('dinoScoreQueue', JSON.stringify(remaining));
+    }
+    flushScoreQueue();
+
+    // ─── Input Handling ───
+    function handleAction(action) {
+      if (gameState === 'idle' || gameState === 'gameover') {
+        if (action === 'jump') startGame();
+        return;
+      }
+
+      if (gameState === 'playing') {
+        if (action === 'jump' && !dino.isJumping) {
+          dino.isJumping = true;
+          dino.vy = dino.jumpForce;
+          dino.isDucking = false;
+        }
+        if (action === 'duck') {
+          dino.isDucking = true;
+          if (dino.isJumping) {
+            dino.vy += 2; // Fast fall
+          }
+        }
+        if (action === 'unduck') {
+          dino.isDucking = false;
+        }
+      }
+    }
+
+    // Keyboard
+    document.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' || e.code === 'ArrowUp') {
+        e.preventDefault();
+        handleAction('jump');
+      }
+      if (e.code === 'ArrowDown') {
+        e.preventDefault();
+        handleAction('duck');
+      }
+    });
+
+    document.addEventListener('keyup', (e) => {
+      if (e.code === 'ArrowDown') {
+        handleAction('unduck');
+      }
+    });
+
+    // Touch (mobile)
+    let touchStartY = 0;
+    canvas.parentElement.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      touchStartY = e.touches[0].clientY;
+      handleAction('jump');
+    }, { passive: false });
+
+    canvas.parentElement.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      const dy = e.touches[0].clientY - touchStartY;
+      if (dy > 30) {
+        handleAction('duck');
+      }
+    }, { passive: false });
+
+    canvas.parentElement.addEventListener('touchend', () => {
+      handleAction('unduck');
+    });
+
+    // Retry button
+    document.getElementById('retryBtn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      startGame();
+    });
+
+    // Start game loop
+    gameLoop();
+  </script>
+</body>
+</html>
